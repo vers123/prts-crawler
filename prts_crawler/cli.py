@@ -12,9 +12,10 @@ from pathlib import Path
 
 from .config import Settings, load_settings
 from .env import ENV_FILE_VAR, find_dotenv, load_dotenv
+from .export import FORMAT_CHOICES, resolve_formats
 from .pipeline import CrawlConfig, Crawler
 
-STEPS = ("index", "details", "media")
+STEPS = ("index", "details", "media", "export")
 
 
 def _preload_env_file(argv: list[str]) -> Path | None:
@@ -39,7 +40,8 @@ def build_parser(settings: Settings, env_path: Path | None = None) -> argparse.A
         nargs="?",
         default="all",
         choices=(*STEPS, "all"),
-        help="index=仅列表, details=列表+详情, media=额外下载图片, all=全部",
+        help="index=仅列表, details=列表+详情, media=额外下载图片, "
+        "export=从已有数据重新导出视图, all=全部",
     )
     parser.add_argument(
         "--env-file",
@@ -72,6 +74,13 @@ def build_parser(settings: Settings, env_path: Path | None = None) -> argparse.A
         help=f"每秒请求数上限 (默认: {settings.rate:g})",
     )
     parser.add_argument("--refresh", action="store_true", help="忽略本地缓存重新抓取")
+    parser.add_argument(
+        "--format",
+        dest="formats",
+        default=settings.export_format,
+        choices=FORMAT_CHOICES,
+        help=f"导出人类可读视图的格式 (默认: {settings.export_format})",
+    )
     media = parser.add_mutually_exclusive_group()
     media.add_argument(
         "--media",
@@ -104,15 +113,17 @@ def main(argv: list[str] | None = None) -> int:
         steps = ["index"]
     elif args.step == "details":
         steps = ["index", "details"]
-    else:
+    elif args.step == "media":
         steps = ["index", "details", "media"]
+    else:
+        steps = ["export"]
 
     if args.verbose:
         print(f"[env] {env_path or '未加载 .env'}", flush=True)
         print(
             f"[env] rate={args.rps:g}/s workers={args.workers} "
             f"timeout={settings.timeout:g}s retries={settings.retries} "
-            f"media={args.media} limit={args.limit or '全部'}",
+            f"media={args.media} limit={args.limit or '全部'} format={args.formats}",
             flush=True,
         )
         print(f"[env] ua={settings.user_agent}", flush=True)
@@ -128,11 +139,12 @@ def main(argv: list[str] | None = None) -> int:
         with_media=args.media,
         keep_wikitext=args.keep_wikitext,
         verbose=args.verbose,
+        export_formats=tuple(resolve_formats(args.formats)),
     )
 
     crawler = Crawler(config)
     try:
-        meta = crawler.run(steps)
+        meta = crawler.run_export() if steps == ["export"] else crawler.run(steps)
     except KeyboardInterrupt:
         print("\n已取消", file=sys.stderr)
         return 130
@@ -141,12 +153,14 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     coverage = meta.get("coverage") or {}
+    if meta.get("exports"):
+        print(f"已导出: {', '.join(meta['exports'])}")
     if coverage:
         print(
             f"完成: {meta['count']} 名干员 | 技能 {coverage.get('skills', 0)} | "
             f"天赋 {coverage.get('talents', 0)} | 模组 {coverage.get('modules', 0)}"
         )
-    else:
+    elif meta.get("count"):
         print(f"完成: 索引 {meta['count']} 条（未抓取详情）")
     return 0
 

@@ -149,6 +149,7 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(settings.out_dir, Path("data"))
         self.assertIsNone(settings.limit)
         self.assertTrue(settings.with_media)
+        self.assertEqual(settings.export_format, "both")
         self.assertIn("Accept-Language", settings.headers)
         self.assertEqual(settings.headers["Accept-Language"], "zh-CN,zh;q=0.9")
 
@@ -174,6 +175,10 @@ class SettingsTests(unittest.TestCase):
     def test_zero_limit_means_all(self) -> None:
         os.environ["PRTS_LIMIT"] = "0"
         self.assertIsNone(load_settings().limit)
+
+    def test_export_format_is_lowercased(self) -> None:
+        os.environ["PRTS_EXPORT_FORMAT"] = "HTML"
+        self.assertEqual(load_settings().export_format, "html")
 
     def test_invalid_values_are_clamped(self) -> None:
         os.environ.update({"PRTS_RATE": "0", "PRTS_WORKERS": "-3", "PRTS_TIMEOUT": "0"})

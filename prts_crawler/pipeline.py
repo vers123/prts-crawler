@@ -13,6 +13,8 @@ from typing import Any, Iterable, Sequence
 from .cargo import CargoError, CargoSource
 from .config import API_URL, INDEX_PAGE, WIKI_BASE, load_settings
 from .detail import WikitextSource, parse_operator_page
+from .export import export as export_views
+from .export import load_dataset, resolve_formats
 from .fallback import HtmlIndexSource
 from .http import HttpClient
 from .media import MediaDownloader, avatar_titles, profession_icon_titles, safe_filename
@@ -31,6 +33,7 @@ class CrawlConfig:
     with_media: bool | None = None
     keep_wikitext: bool = False
     verbose: bool = False
+    export_formats: Sequence[str] | None = None
 
 
 def _now() -> str:
@@ -100,6 +103,8 @@ class Crawler:
         config.timeout = settings.timeout if config.timeout is None else config.timeout
         config.retries = settings.retries if config.retries is None else config.retries
         config.with_media = settings.with_media if config.with_media is None else config.with_media
+        if config.export_formats is None:
+            config.export_formats = tuple(resolve_formats(settings.export_format))
 
         self.config = config
         self.index_source = "unknown"
@@ -432,8 +437,40 @@ class Crawler:
             {"meta": meta, "operators": records},
         )
         _write_json(self.meta_path, meta)
+
+        if "export" in steps:
+            self.export_records(records, meta)
+
         self._log(
             f"[done] {len(records)} operators, {self.client.request_count} HTTP requests, "
             f"{meta['elapsedSeconds']}s -> {self.dataset_path}"
         )
         return meta
+
+    # ----------------------------------------------------------------- export
+    def export_records(
+        self,
+        records: Sequence[dict[str, Any]],
+        meta: dict[str, Any] | None = None,
+    ) -> list[Path]:
+        formats = self.config.export_formats or []
+        if not formats:
+            return []
+        written = export_views(records, self.config.out_dir, formats, meta)
+        for path in written:
+            size = path.stat().st_size / 1024
+            self._log(f"[export] {path} ({size:.0f} KB)")
+        return written
+
+    def run_export(self) -> dict[str, Any]:
+        """Re-render the views from an existing ``operators.json`` (no network)."""
+        if not self.dataset_path.exists():
+            raise RuntimeError(
+                f"找不到 {self.dataset_path}；请先运行 details 或 all 生成数据集"
+            )
+        records, meta = load_dataset(self.dataset_path)
+        self._log(f"[export] 读取 {len(records)} 条记录（{self.dataset_path}）")
+        written = self.export_records(records, meta)
+        if not written:
+            self._log("[export] 未选择任何格式（PRTS_EXPORT_FORMAT=none）")
+        return {"count": len(records), "exports": [str(p) for p in written], "coverage": meta.get("coverage", {})}

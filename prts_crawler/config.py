@@ -35,6 +35,7 @@ BUILTIN_WORKERS = 4
 BUILTIN_TIMEOUT = 30.0
 BUILTIN_RETRIES = 5
 BUILTIN_OUT_DIR = "data"
+BUILTIN_EXPORT_FORMAT = "both"
 
 #: MediaWiki caps ``action=query`` titles at 50 per request for anonymous users.
 MAX_TITLES_PER_BATCH = 50
@@ -55,6 +56,7 @@ class Settings:
     out_dir: Path
     limit: int | None
     with_media: bool
+    export_format: str
 
     @property
     def headers(self) -> dict[str, str]:
@@ -74,6 +76,7 @@ def load_settings() -> Settings:
         PRTS_OUT_DIR     输出目录（默认 data）
         PRTS_LIMIT       只抓前 N 名，0 或留空表示全部
         PRTS_MEDIA       是否下载图片，1/0
+        PRTS_EXPORT_FORMAT  导出人类可读视图：md / html / both / none
     """
     limit = env_int("PRTS_LIMIT", 0)
     return Settings(
@@ -85,4 +88,5 @@ def load_settings() -> Settings:
         out_dir=Path(env_str("PRTS_OUT_DIR", BUILTIN_OUT_DIR)),
         limit=limit if limit > 0 else None,
         with_media=env_bool("PRTS_MEDIA", True),
+        export_format=env_str("PRTS_EXPORT_FORMAT", BUILTIN_EXPORT_FORMAT).lower(),
     )

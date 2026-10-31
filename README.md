@@ -25,9 +25,10 @@ python -m venv .venv
 ```
 
 ```powershell
-prts-crawler all              # 列表 + 详情 + 图片
+prts-crawler all              # 列表 + 详情 + 图片 + 导出
 prts-crawler index            # 只要列表（1 次请求）
 prts-crawler details          # 列表 + 详情（不下载图片）
+prts-crawler export           # 从已有数据重新渲染 md/html，不联网
 prts-crawler all --limit 20   # 小样本试跑
 prts-crawler all --refresh    # 忽略缓存重抓
 ```
@@ -54,6 +55,7 @@ Copy-Item .env.example .env    # 已生成，改里面的联系方式即可
 | `PRTS_OUT_DIR` | `data` | 输出目录 |
 | `PRTS_LIMIT` | `0` | 只抓前 N 名，`0`/留空 = 全部 |
 | `PRTS_MEDIA` | `1` | 是否下载图片，`1`/`0` |
+| `PRTS_EXPORT_FORMAT` | `both` | 导出视图格式：`md` / `html` / `both` / `none` |
 
 `.env` 自动发现顺序：当前目录向上最多 6 层 → 项目根目录。
 也可以用 `PRTS_ENV_FILE` 环境变量或 `--env-file` 参数指定别的文件：
@@ -74,10 +76,36 @@ data/
 ├── operators.json      # 合并后的数据集（含 meta）
 ├── operators.jsonl     # 逐行版本，便于流式处理
 ├── meta.json           # 统计：请求数、耗时、各字段覆盖率
+├── exports/            # 人类可读视图
+│   ├── operators.md    #   总览表 + 按职业分组（diff 友好，约 120 KB）
+│   └── operators.html  #   单文件看板，带图 / 搜索 / 折叠（约 1.3 MB）
 └── media/
     ├── avatars/        # 头像 434 张
     └── professions/    # 职业图标
 ```
+
+## 两种视图怎么选
+
+|\ | Markdown | HTML |
+|---|---|---|
+| 定位 | 进仓库做版本对比 | 浏览、交付、打印 PDF |
+| 体积（434 名全量） | 120 KB | 1.3 MB（含全部技能/天赋/模组表） |
+| 头像 | 无 | 434 张，`loading="lazy"` |
+| 搜索筛选 | 无 | 输入「狙击」→ 命中 59 条 |
+| 折叠长表 | 无 | 1670 个 `<details>` |
+| Git diff | ✅ 一行一名干员 | ❌ 单文件不可读 |
+| 外部依赖 | 无 | 无（CSS/JS 全内联，0 个外部 URL） |
+
+Markdown 只放总览表与技能/天赋名称，逐级数值留在 HTML 里 —— 否则每张子表都要重复表头，
+体积会涨到 1.9 MB 且完全没法 review。
+
+```powershell
+prts-crawler export --format html    # 只出看板
+prts-crawler export --format md      # 只出摘要
+prts-crawler export --format none    # 只要 JSON
+```
+
+`operators.html` 直接双击就能看，图片走相对路径 `../media/avatars/`，整个 `data/` 目录可打包带走。
 
 ## 数据示例
 
@@ -122,7 +150,8 @@ prts_crawler/
 ├── wikitext.py   # {{模板}} 解析器（支持嵌套 / 链接 / 着色清理）
 ├── fallback.py   # 兜底：解析 #filter-data 的 data-* 卡片
 ├── media.py      # imageinfo 解析 + 图片下载
-├── pipeline.py   # 编排：索引 → 详情 → 合并 → 媒体
+├── export.py     # 渲染 Markdown 摘要 / HTML 看板（零依赖）
+├── pipeline.py   # 编排：索引 → 详情 → 合并 → 媒体 → 导出
 └── cli.py        # argparse 入口
 ```
 
@@ -161,7 +190,8 @@ prts_crawler/
 ```
 
 覆盖模板解析、嵌套 `{{color}}`/链接清理、技能等级与专精、天赋、基建技能、潜能串解析，
-以及 `.env` 解析（引号/转义/注释/优先级）与配置归一化。
+`.env` 解析（引号/转义/注释/优先级）与配置归一化，以及导出（Markdown 转义、HTML 自包含、
+格式选择、缺失字段容错）。
 
 ## 说明
 
