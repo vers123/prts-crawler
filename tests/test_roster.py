@@ -14,6 +14,7 @@ from prts_crawler.roster import (
     max_elite,
     normalize_name,
     phase_caps,
+    render_fill_sheet,
     render_markdown,
     resolve_entries,
     summarize,
@@ -268,6 +269,40 @@ class LoadEntriesTests(unittest.TestCase):
         entries, meta = load_entries(path)
         self.assertEqual([entry.name for entry in entries], ["银灰", "芬"])
         self.assertEqual(meta, {})
+
+
+class FillSheetTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.sheet = render_fill_sheet(
+            resolve_entries(
+                [
+                    Entry("芬", level=40, screenshot="a.jpg"),
+                    Entry("银灰", level=90, screenshot="b.jpg"),
+                    Entry("银灰", level=90, screenshot="c.jpg"),
+                ],
+                OPERATORS,
+            ),
+            {"capturedAt": "2026-11-01"},
+        )
+
+    def test_columns_include_skill_and_module_slots(self) -> None:
+        self.assertIn(
+            "| # | 干员 | 星级 | 职业 | 等级 | 精英化 | 技能1 | 技能2 | 技能3 | 模组 | 备注 |",
+            self.sheet,
+        )
+
+    def test_level_is_prefilled_and_other_cells_blank(self) -> None:
+        self.assertIn("| 银灰 | ★★★★★★ | 近卫 | Lv90 |  |  |  |  |  |  |", self.sheet)
+
+    def test_sorted_by_level_desc(self) -> None:
+        self.assertLess(self.sheet.index("Lv90"), self.sheet.index("Lv40"))
+
+    def test_deduped(self) -> None:
+        self.assertEqual(self.sheet.count("| 银灰 |"), 1)
+
+    def test_legend_documents_allowed_values(self) -> None:
+        self.assertIn("`专1` / `专2` / `专3`", self.sheet)
+        self.assertIn("精英化 | `0` / `1` / `2`", self.sheet)
 
 
 if __name__ == "__main__":

@@ -26,6 +26,7 @@ from .pipeline import CrawlConfig, Crawler
 from .roster import (
     load_entries,
     load_operators,
+    render_fill_sheet,
     render_markdown,
     resolve_entries,
     summarize,
@@ -150,6 +151,11 @@ def build_parser(settings: Settings, env_path: Path | None = None) -> argparse.A
         help=f"配合 roster 使用：名单输出路径 (默认: {DEFAULT_ROSTER_OUT})",
     )
     parser.add_argument(
+        "--fill-sheet",
+        action="store_true",
+        help="配合 roster 使用：输出待人工核对的填写模板（等级已填，其余留空）",
+    )
+    parser.add_argument(
         "--format",
         dest="formats",
         default=settings.export_format,
@@ -263,13 +269,18 @@ def _run_roster(args) -> int:
         if "精英化需确认" not in detail:
             print(f"  ! {detail}")
 
-    markdown = render_markdown(resolutions, {**meta, "dataset": "data/operators.json"})
+    markdown = (
+        render_fill_sheet(resolutions, {**meta, "dataset": "data/operators.json"})
+        if args.fill_sheet
+        else render_markdown(resolutions, {**meta, "dataset": "data/operators.json"})
+    )
     out_path = Path(args.roster_out)
     if not out_path.is_absolute():
         out_path = Path.cwd() / out_path
 
     if not args.write:
-        print(f"\n预览完成，尚未写入。确认无误后加 --write 写入 {out_path}")
+        kind = "填写模板" if args.fill_sheet else "名单"
+        print(f"\n预览完成，尚未写入{kind}。确认无误后加 --write 写入 {out_path}")
         print(f"（将写入 {len(markdown.splitlines())} 行）")
         return 0 if summary["unmatched"] == [] else 3
 

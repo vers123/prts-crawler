@@ -302,6 +302,72 @@ def _stars(rarity: Any) -> str:
     return "★" * value if value else "?"
 
 
+def render_fill_sheet(
+    resolutions: Sequence[Resolution],
+    meta: dict[str, Any] | None = None,
+) -> str:
+    """Blank fill-in sheet: level pre-filled from screenshots, the rest left open."""
+    meta = meta or {}
+    captured = meta.get("capturedAt", "")
+    dataset = meta.get("dataset", "data/operators.json")
+
+    unique: list[Resolution] = []
+    seen: set[str] = set()
+    for item in resolutions:
+        if item.operator is None:
+            continue
+        key = str(item.operator.get("charId") or item.operator.get("name"))
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(item)
+
+    # 按等级倒序排列，与游戏内按等级排序一致，方便逐条核对
+    unique.sort(
+        key=lambda item: (
+            -(item.entry.level or 0),
+            -(_as_int((item.operator or {}).get("rarity")) or 0),
+            str((item.operator or {}).get("name") or ""),
+        )
+    )
+
+    lines = [
+        "# 我的明日方舟干员（待核对）",
+        "",
+        f"> 共 {len(unique)} 名。**干员 / 星级 / 职业 / 等级** 来自 "
+        f"{captured or '截图'} 的识别结果与 {dataset}；"
+        "**精英化 / 技能 / 模组 / 备注** 请在游戏内逐条核对后填写。",
+        "",
+        "## 填写说明",
+        "",
+        "| 列 | 可填内容 | 示例 |",
+        "| --- | --- | --- |",
+        "| 精英化 | `0` / `1` / `2` | `2` |",
+        "| 技能1–3 | `1`–`7`，或专精写 `专1` / `专2` / `专3`；无该技能留空或填 `-` | `7`、`专3` |",
+        "| 模组 | 模组等级 `0`–`3`；未开启留空或填 `-` | `3` |",
+        "| 备注 | 任意说明，例如「借的」「未精二」 | |",
+        "",
+        "> 等级已按截图填好，如与游戏内不一致请直接改。"
+        "填完后可运行 `prts-crawler roster` 复核等级与精英化是否自洽。",
+        "",
+        "## 干员列表",
+        "",
+        "| # | 干员 | 星级 | 职业 | 等级 | 精英化 | 技能1 | 技能2 | 技能3 | 模组 | 备注 |",
+        "| ---: | --- | :---: | --- | ---: | :---: | :---: | :---: | :---: | :---: | --- |",
+    ]
+
+    for index, item in enumerate(unique, start=1):
+        operator = item.operator or {}
+        name = str(operator.get("name") or "")
+        level = f"Lv{item.entry.level}" if item.entry.level is not None else ""
+        lines.append(
+            f"| {index} | {name} | {_stars(operator.get('rarity'))} "
+            f"| {operator.get('profession') or ''} | {level} |  |  |  |  |  |  |"
+        )
+
+    return "\n".join(lines) + "\n"
+
+
 def render_markdown(
     resolutions: Sequence[Resolution],
     meta: dict[str, Any] | None = None,
