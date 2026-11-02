@@ -294,8 +294,20 @@ class FillSheetTests(unittest.TestCase):
     def test_level_is_prefilled_and_other_cells_blank(self) -> None:
         self.assertIn("| 银灰 | ★★★★★★ | 近卫 | Lv90 |  |  |  |  |  |  |", self.sheet)
 
-    def test_sorted_by_level_desc(self) -> None:
-        self.assertLess(self.sheet.index("Lv90"), self.sheet.index("Lv40"))
+    def test_sorted_by_rarity_then_level(self) -> None:
+        sheet = render_fill_sheet(
+            resolve_entries(
+                [
+                    Entry("芬", level=40),          # 3★
+                    Entry("银灰", level=50),        # 6★
+                    Entry("凯尔希·思衡托", level=90),  # 6★ 更高等级
+                ],
+                OPERATORS,
+            )
+        )
+        # 6★ 组在前，组内 Lv90 在 Lv50 之前，3★ 最后
+        self.assertLess(sheet.index("凯尔希·思衡托"), sheet.index("银灰"))
+        self.assertLess(sheet.index("银灰"), sheet.index("芬"))
 
     def test_deduped(self) -> None:
         self.assertEqual(self.sheet.count("| 银灰 |"), 1)

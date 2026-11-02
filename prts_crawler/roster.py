@@ -322,11 +322,12 @@ def render_fill_sheet(
         seen.add(key)
         unique.append(item)
 
-    # 按等级倒序排列，与游戏内按等级排序一致，方便逐条核对
+    # 按稀有度倒序，同星级内按等级倒序，便于与游戏内筛选结果对照
     unique.sort(
         key=lambda item: (
-            -(item.entry.level or 0),
             -(_as_int((item.operator or {}).get("rarity")) or 0),
+            -(item.entry.level or 0),
+            str((item.operator or {}).get("profession") or ""),
             str((item.operator or {}).get("name") or ""),
         )
     )
@@ -349,6 +350,8 @@ def render_fill_sheet(
         "",
         "> 等级已按截图填好，如与游戏内不一致请直接改。"
         "填完后可运行 `prts-crawler roster` 复核等级与精英化是否自洽。",
+        "",
+        "> 排序：稀有度从高到低，同星级内按等级从高到低。",
         "",
         "## 干员列表",
         "",
