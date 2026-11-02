@@ -5,6 +5,10 @@ data/
 .env
 .env.local
 .env.*.local
+.plan/
+
+# 攻略模块：账号截图与持有名单属个人数据，仅本地保留
+guide/data/
 
 # 虚拟环境与打包产物
 .venv/

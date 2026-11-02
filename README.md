@@ -5,7 +5,9 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-数据来源与逆向过程见 [docs/data-sources.md](docs/data-sources.md)。
+项目从浏览器观察到采集实现的设计过程见
+[项目设计思路](docs/project-design.md)；数据来源与接口验证细节见
+[docs/data-sources.md](docs/data-sources.md)。
 
 ## 快速开始
 
@@ -192,6 +194,12 @@ prts_crawler/
 覆盖模板解析、嵌套 `{{color}}`/链接清理、技能等级与专精、天赋、基建技能、潜能串解析，
 `.env` 解析（引号/转义/注释/优先级）与配置归一化，以及导出（Markdown 转义、HTML 自包含、
 格式选择、缺失字段容错）。
+
+## AI Agent 工作计划
+
+对于涉及多个步骤的开发任务，AI 工具或 Agent 可以先在仓库根目录的
+`.plan/` 中创建 Markdown 计划文件，梳理目标、实施步骤和验证方式，再按计划执行。
+计划文件仅供本地协作使用，已由 `.gitignore` 排除，不提交到仓库。
 
 ## 说明
 
