@@ -59,6 +59,22 @@ prts-crawler stage 1-7 --json   # 输出原始 JSON
 
 退出码：`0` 命中、`3` 多个同分候选、`4` 未找到。
 
+核对截图识别出的干员名单（含等级、精英化）：
+
+```powershell
+prts-crawler roster --entries data/_roster/entries.json            # 只预览
+prts-crawler roster --entries data/_roster/entries.json --write    # 确认后写入
+```
+
+`entries.json` 里每张卡片一条：`{"name": "银灰", "level": 90, "elite": 2, "screenshot": "141417.jpg"}`。
+`elite` 可省略，由 PRTS 的阶段上限推导：
+
+- 只有一个精英化能容纳该等级 → 直接采用
+- 等级恰好等于某一档上限 → 按该档推定（并标注依据）
+- 两者都不满足 → 留空并标记"精英化需确认"，不猜
+
+工具同时做去重（滚动截图重叠）、名称匹配（不匹配会列出）、等级上限校验。
+
 不想激活也能直接用解释器调用：`.\.venv\Scripts\python.exe -m prts_crawler all`。
 
 ## 配置（.env）
@@ -180,6 +196,7 @@ prts_crawler/
 ├── media.py      # imageinfo 解析 + 图片下载
 ├── stages.py     # 关卡与敌人：分类枚举 + 关卡/敌人模板解析
 ├── lookup.py     # 关卡检索：本地打分匹配，未命中回退 PRTS 搜索
+├── roster.py     # 截图识别结果 → 匹配、去重、等级校验、渲染名单
 ├── export.py     # 渲染 Markdown 摘要 / HTML 看板（零依赖）
 ├── pipeline.py   # 编排：索引 → 详情 → 合并 → 媒体 → 导出 → 关卡 → 敌人
 └── cli.py        # argparse 入口

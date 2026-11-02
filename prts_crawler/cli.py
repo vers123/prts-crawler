@@ -23,9 +23,28 @@ from .lookup import (
     search_local,
 )
 from .pipeline import CrawlConfig, Crawler
+from .roster import (
+    load_entries,
+    load_operators,
+    render_markdown,
+    resolve_entries,
+    summarize,
+)
 from .stages import SCOPE_CHOICES
 
-STEPS = ("index", "details", "media", "export", "stages", "enemies", "operators", "stage")
+STEPS = (
+    "index",
+    "details",
+    "media",
+    "export",
+    "stages",
+    "enemies",
+    "operators",
+    "stage",
+    "roster",
+)
+
+DEFAULT_ROSTER_OUT = "guide/data/operators/owned-operators.md"
 
 
 def _preload_env_file(argv: list[str]) -> Path | None:
@@ -52,7 +71,8 @@ def build_parser(settings: Settings, env_path: Path | None = None) -> argparse.A
         choices=(*STEPS, "all"),
         help="index=仅列表, details=列表+详情, media=额外下载图片, "
         "export=从已有数据重新导出视图, stages=抓关卡+敌人, enemies=只补敌人, "
-        "stage=查询单个关卡, operators=干员全流程, all=干员+关卡+敌人",
+        "stage=查询单个关卡, roster=核对识别名单, operators=干员全流程, "
+        "all=干员+关卡+敌人",
     )
     parser.add_argument(
         "query",
@@ -111,6 +131,23 @@ def build_parser(settings: Settings, env_path: Path | None = None) -> argparse.A
         "--pick",
         action="store_true",
         help="配合 stage 使用：多个候选同分时直接取第一个",
+    )
+    parser.add_argument(
+        "--entries",
+        metavar="PATH",
+        default=None,
+        help="配合 roster 使用：识别结果 JSON 路径",
+    )
+    parser.add_argument(
+        "--write",
+        action="store_true",
+        help="配合 roster 使用：确认无误后写入持有名单（默认只预览）",
+    )
+    parser.add_argument(
+        "--roster-out",
+        metavar="PATH",
+        default=DEFAULT_ROSTER_OUT,
+        help=f"配合 roster 使用：名单输出路径 (默认: {DEFAULT_ROSTER_OUT})",
     )
     parser.add_argument(
         "--format",
@@ -187,6 +224,61 @@ def _run_stage_lookup(args, settings) -> int:
     return 0
 
 
+def _run_roster(args) -> int:
+    """``prts-crawler roster --entries <json> [--write]``."""
+    if not args.entries:
+        print("用法: prts-crawler roster --entries <识别结果.json> [--write]", file=sys.stderr)
+        return 2
+
+    entries_path = Path(args.entries).resolve()
+    if not entries_path.exists():
+        print(f"找不到识别结果: {entries_path}", file=sys.stderr)
+        return 2
+
+    operators_path = Path(args.out).resolve() / "operators.json"
+    if not operators_path.exists():
+        print(f"找不到 {operators_path}；请先运行 operators", file=sys.stderr)
+        return 2
+
+    entries, meta = load_entries(entries_path)
+    operators = load_operators(operators_path)
+    resolutions = resolve_entries(entries, operators)
+    summary = summarize(resolutions)
+
+    print(
+        f"识别 {summary['total']} 张卡片 → 匹配 {summary['matched']}、"
+        f"去重后 {summary['unique']} 名"
+    )
+    if summary["duplicates"]:
+        print(f"滚动重叠重复 {summary['duplicates']} 张，已自动去重")
+    if summary["inferredElite"]:
+        print(f"精英化已由等级推定 {summary['inferredElite']} 名")
+    if summary["pendingElite"]:
+        names = summary["pendingElite"]
+        preview = "、".join(names[:8]) + ("…" if len(names) > 8 else "")
+        print(f"精英化待确认 {len(names)} 名：{preview}")
+    if summary["unmatched"]:
+        print("未匹配：" + "、".join(summary["unmatched"]))
+    for detail in summary["issueDetails"]:
+        if "精英化需确认" not in detail:
+            print(f"  ! {detail}")
+
+    markdown = render_markdown(resolutions, {**meta, "dataset": "data/operators.json"})
+    out_path = Path(args.roster_out)
+    if not out_path.is_absolute():
+        out_path = Path.cwd() / out_path
+
+    if not args.write:
+        print(f"\n预览完成，尚未写入。确认无误后加 --write 写入 {out_path}")
+        print(f"（将写入 {len(markdown.splitlines())} 行）")
+        return 0 if summary["unmatched"] == [] else 3
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(markdown, encoding="utf-8", newline="\n")
+    print(f"已写入 {out_path}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     env_path = _preload_env_file(argv)
@@ -201,6 +293,15 @@ def main(argv: list[str] | None = None) -> int:
             return 130
         except Exception as exc:  # noqa: BLE001
             print(f"查询失败: {exc}", file=sys.stderr)
+            return 1
+
+    if args.step == "roster":
+        try:
+            return _run_roster(args)
+        except KeyboardInterrupt:
+            return 130
+        except Exception as exc:  # noqa: BLE001
+            print(f"名单核对失败: {exc}", file=sys.stderr)
             return 1
 
     STEP_MAP = {
