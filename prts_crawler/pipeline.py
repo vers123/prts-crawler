@@ -18,6 +18,14 @@ from .export import load_dataset, resolve_formats
 from .fallback import HtmlIndexSource
 from .http import HttpClient
 from .media import MediaDownloader, avatar_titles, profession_icon_titles, safe_filename
+from .stages import (
+    list_category_members,
+    parse_enemy,
+    parse_stage,
+    referenced_enemies,
+    resolve_scope,
+    stage_key,
+)
 from .wikitext import split_list, strip_html, to_int
 
 
@@ -34,6 +42,8 @@ class CrawlConfig:
     keep_wikitext: bool = False
     verbose: bool = False
     export_formats: Sequence[str] | None = None
+    stage_scope: str = "main"
+    all_enemies: bool = False
 
 
 def _now() -> str:
@@ -140,6 +150,14 @@ class Crawler:
     @property
     def meta_path(self) -> Path:
         return self.config.out_dir / "meta.json"
+
+    @property
+    def stages_path(self) -> Path:
+        return self.config.out_dir / "stages.json"
+
+    @property
+    def enemies_path(self) -> Path:
+        return self.config.out_dir / "enemies.json"
 
     def _log(self, message: str) -> None:
         print(message, flush=True)
@@ -382,8 +400,24 @@ class Crawler:
         return downloaded
 
     # -------------------------------------------------------------------- run
+    OPERATOR_STEPS = ("index", "details", "media", "export")
+
     def run(self, steps: Sequence[str] = ("index", "details", "media")) -> dict[str, Any]:
         started = time.time()
+        result: dict[str, Any] = {}
+
+        if any(step in self.OPERATOR_STEPS for step in steps):
+            result = self._run_operators(steps, started)
+        if "stages" in steps:
+            result.update(self.crawl_stages())
+        if "enemies" in steps:
+            result.update(self.crawl_enemies())
+
+        if not result:
+            raise RuntimeError(f"没有可执行的步骤: {list(steps)}")
+        return result
+
+    def _run_operators(self, steps: Sequence[str], started: float) -> dict[str, Any]:
         index_rows = self.load_index()
 
         if "details" not in steps:
@@ -446,6 +480,124 @@ class Crawler:
             f"{meta['elapsedSeconds']}s -> {self.dataset_path}"
         )
         return meta
+
+    # --------------------------------------------------------- stages/enemies
+    def _fetch_pages(self, titles: Sequence[str], label: str) -> dict[str, str]:
+        """Batch-fetch wikitext for arbitrary titles (no disk cache)."""
+        if not titles:
+            return {}
+        self._log(f"[{label}] fetching wikitext for {len(titles)} pages")
+        texts = self.wikitext.fetch_many(list(titles), workers=self.config.workers)
+        missing = [title for title in titles if title not in texts]
+        if missing:
+            self._log(f"[{label}] {len(missing)} page(s) unavailable, e.g. {missing[:3]}")
+        return texts
+
+    def crawl_stages(self) -> dict[str, Any]:
+        started = time.time()
+        categories = resolve_scope(self.config.stage_scope)
+
+        titles: list[str] = []
+        seen: set[str] = set()
+        for category in categories:
+            members = list_category_members(self.client, category)
+            self._log(f"[stages] 分类:{category} -> {len(members)} 页")
+            for title in members:
+                if title not in seen:
+                    seen.add(title)
+                    titles.append(title)
+        if self.config.limit:
+            titles = titles[: self.config.limit]
+
+        texts = self._fetch_pages(titles, "stages")
+
+        stages: list[dict[str, Any]] = []
+        unparsed: list[str] = []
+        for title in titles:
+            text = texts.get(title)
+            stage = parse_stage(title, text) if text else None
+            if stage is None:
+                unparsed.append(title)
+                continue
+            stage["key"] = stage_key(stage)
+            stages.append(stage)
+
+        if not stages:
+            raise RuntimeError(
+                "没有解析到任何关卡；页面模板可能已改版，请重新检查 "
+                "{{普通关卡信息}} / {{突袭关卡信息}}"
+            )
+
+        stages.sort(key=lambda item: (item.get("type") or "", item.get("code") or "", item.get("name") or ""))
+        meta = {
+            "source": f"{WIKI_BASE}/w/关卡一览",
+            "scope": self.config.stage_scope,
+            "categories": categories,
+            "fetchedAt": _now(),
+            "count": len(stages),
+            "unparsed": unparsed[:20],
+            "unparsedCount": len(unparsed),
+            "withChallenge": sum(1 for stage in stages if stage.get("challenge")),
+            "withEnemies": sum(1 for stage in stages if stage.get("enemies")),
+            "withDevices": sum(1 for stage in stages if stage.get("devices")),
+            "elapsedSeconds": round(time.time() - started, 1),
+        }
+        _write_json(self.stages_path, {"meta": meta, "stages": stages})
+        self._log(
+            f"[stages] {len(stages)} 关写入 {self.stages_path}"
+            + (f"（{len(unparsed)} 页无可识别模板）" if unparsed else "")
+        )
+        return {"stageCount": len(stages), "stageMeta": meta}
+
+    def crawl_enemies(self, names: Sequence[str] | None = None) -> dict[str, Any]:
+        started = time.time()
+
+        if names is None:
+            if self.config.all_enemies:
+                names = list_category_members(self.client, "敌人")
+                self._log(f"[enemies] 分类:敌人 -> {len(names)} 页")
+            elif self.stages_path.exists():
+                payload = json.loads(self.stages_path.read_text(encoding="utf-8"))
+                names = referenced_enemies(payload.get("stages", []))
+                self._log(f"[enemies] 取自 stages.json 引用 -> {len(names)} 个")
+            else:
+                raise RuntimeError(
+                    f"找不到 {self.stages_path}；请先运行 stages，或加 --all-enemies 全量抓取"
+                )
+
+        names = list(dict.fromkeys(name for name in names if name))
+        texts = self._fetch_pages(names, "enemies")
+
+        enemies: list[dict[str, Any]] = []
+        unresolved: list[str] = []
+        for name in names:
+            text = texts.get(name)
+            enemy = parse_enemy(name, text) if text else None
+            if enemy is None:
+                unresolved.append(name)
+                continue
+            enemies.append(enemy)
+
+        if not enemies:
+            raise RuntimeError("没有解析到任何敌人；请检查 {{敌人信息/common2}} 模板")
+
+        enemies.sort(key=lambda item: (item.get("index") or 10**6, item.get("name") or ""))
+        meta = {
+            "source": f"{WIKI_BASE}/w/敌人",
+            "fetchedAt": _now(),
+            "count": len(enemies),
+            "scope": "all" if self.config.all_enemies else "referenced",
+            "unresolved": unresolved[:20],
+            "unresolvedCount": len(unresolved),
+            "withLevels": sum(1 for enemy in enemies if enemy.get("levels")),
+            "elapsedSeconds": round(time.time() - started, 1),
+        }
+        _write_json(self.enemies_path, {"meta": meta, "enemies": enemies})
+        self._log(
+            f"[enemies] {len(enemies)} 个写入 {self.enemies_path}"
+            + (f"（{len(unresolved)} 个未找到页面）" if unresolved else "")
+        )
+        return {"enemyCount": len(enemies), "enemyMeta": meta}
 
     # ----------------------------------------------------------------- export
     def export_records(

@@ -159,6 +159,16 @@ class WikitextTests(unittest.TestCase):
         self.assertEqual(len(found), 1)
         self.assertEqual(found[0].get("技能名"), "冲锋模式")
 
+    def test_strip_markup_keeps_angle_bracket_mechanics(self) -> None:
+        # PRTS 用尖括号表示游戏内机制名，不能被当成 HTML 标签删掉
+        self.assertEqual(strip_markup("<震撼装置>消耗费用"), "<震撼装置>消耗费用")
+        self.assertEqual(strip_markup("不受<部署数量>限制"), "不受<部署数量>限制")
+        self.assertEqual(
+            strip_markup('<span style="color:#00B0FF;">空中</span>单位'),
+            "空中单位",
+        )
+        self.assertEqual(strip_markup("<b>粗体</b>与<references/>"), "粗体与")
+
     def test_split_list_handles_cjk_separators(self) -> None:
         self.assertEqual(split_list("输出 削弱"), ["输出", "削弱"])
         self.assertEqual(split_list("公开招募，主线剧情"), ["公开招募", "主线剧情"])

@@ -14,8 +14,9 @@ from .config import Settings, load_settings
 from .env import ENV_FILE_VAR, find_dotenv, load_dotenv
 from .export import FORMAT_CHOICES, resolve_formats
 from .pipeline import CrawlConfig, Crawler
+from .stages import SCOPE_CHOICES
 
-STEPS = ("index", "details", "media", "export")
+STEPS = ("index", "details", "media", "export", "stages", "enemies", "operators")
 
 
 def _preload_env_file(argv: list[str]) -> Path | None:
@@ -41,7 +42,8 @@ def build_parser(settings: Settings, env_path: Path | None = None) -> argparse.A
         default="all",
         choices=(*STEPS, "all"),
         help="index=仅列表, details=列表+详情, media=额外下载图片, "
-        "export=从已有数据重新导出视图, all=全部",
+        "export=从已有数据重新导出视图, stages=关卡+敌人, enemies=只补敌人, "
+        "operators=干员全流程, all=干员+关卡+敌人",
     )
     parser.add_argument(
         "--env-file",
@@ -75,6 +77,17 @@ def build_parser(settings: Settings, env_path: Path | None = None) -> argparse.A
     )
     parser.add_argument("--refresh", action="store_true", help="忽略本地缓存重新抓取")
     parser.add_argument(
+        "--stage-scope",
+        default="main",
+        choices=SCOPE_CHOICES,
+        help="关卡范围：main=主线, event=活动, all=全部普通难度关卡 (默认: main)",
+    )
+    parser.add_argument(
+        "--all-enemies",
+        action="store_true",
+        help="抓取 分类:敌人 全部敌人，而不是只补齐关卡引用到的敌人",
+    )
+    parser.add_argument(
         "--format",
         dest="formats",
         default=settings.export_format,
@@ -107,23 +120,25 @@ def main(argv: list[str] | None = None) -> int:
 
     args = build_parser(settings, env_path).parse_args(argv)
 
-    if args.step == "all":
-        steps = list(STEPS)
-    elif args.step == "index":
-        steps = ["index"]
-    elif args.step == "details":
-        steps = ["index", "details"]
-    elif args.step == "media":
-        steps = ["index", "details", "media"]
-    else:
-        steps = ["export"]
+    STEP_MAP = {
+        "all": ["index", "details", "media", "export", "stages", "enemies"],
+        "operators": ["index", "details", "media", "export"],
+        "index": ["index"],
+        "details": ["index", "details"],
+        "media": ["index", "details", "media"],
+        "export": ["export"],
+        "stages": ["stages", "enemies"],
+        "enemies": ["enemies"],
+    }
+    steps = STEP_MAP[args.step]
 
     if args.verbose:
         print(f"[env] {env_path or '未加载 .env'}", flush=True)
         print(
             f"[env] rate={args.rps:g}/s workers={args.workers} "
             f"timeout={settings.timeout:g}s retries={settings.retries} "
-            f"media={args.media} limit={args.limit or '全部'} format={args.formats}",
+            f"media={args.media} limit={args.limit or '全部'} format={args.formats} "
+            f"stageScope={args.stage_scope}",
             flush=True,
         )
         print(f"[env] ua={settings.user_agent}", flush=True)
@@ -140,6 +155,8 @@ def main(argv: list[str] | None = None) -> int:
         keep_wikitext=args.keep_wikitext,
         verbose=args.verbose,
         export_formats=tuple(resolve_formats(args.formats)),
+        stage_scope=args.stage_scope,
+        all_enemies=args.all_enemies,
     )
 
     crawler = Crawler(config)
@@ -162,6 +179,19 @@ def main(argv: list[str] | None = None) -> int:
         )
     elif meta.get("count"):
         print(f"完成: 索引 {meta['count']} 条（未抓取详情）")
+    if "stageCount" in meta:
+        stage_meta = meta.get("stageMeta") or {}
+        print(
+            f"关卡: {meta['stageCount']} 个（范围 {stage_meta.get('scope')}）"
+            f" | 含突袭 {stage_meta.get('withChallenge', 0)}"
+            f" | 含敌人表 {stage_meta.get('withEnemies', 0)}"
+        )
+    if "enemyCount" in meta:
+        enemy_meta = meta.get("enemyMeta") or {}
+        print(
+            f"敌人: {meta['enemyCount']} 个（{enemy_meta.get('scope')}）"
+            f" | 未找到 {enemy_meta.get('unresolvedCount', 0)}"
+        )
     return 0
 
 

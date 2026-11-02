@@ -14,7 +14,14 @@ from dataclasses import dataclass, field
 from typing import Iterator, Sequence
 
 _BR_RE = re.compile(r"<br\s*/?>", re.IGNORECASE)
-_TAG_RE = re.compile(r"<[^>]+>")
+#: Only real HTML tags are stripped. PRTS writes in-game mechanic names in angle
+#: brackets (``<震撼装置>``、``<部署数量>``), which must survive as text.
+_HTML_TAG_RE = re.compile(
+    r"</?(?:a|abbr|b|big|blockquote|br|center|cite|code|dd|del|div|dl|dt|em|font|h[1-6]|hr|i|img"
+    r"|ins|li|ol|p|pre|rb|ref|references|rp|rt|ruby|s|small|span|strike|strong|style|sub|sup"
+    r"|table|tbody|td|th|thead|tr|u|ul|wbr|nowiki)(?:\s[^<>]*)?/?>",
+    re.IGNORECASE,
+)
 _BOLD_RE = re.compile(r"'{2,5}")
 _SPACE_RE = re.compile(r"[ \t\u00a0]+")
 _BLANK_LINES_RE = re.compile(r"\n{3,}")
@@ -188,7 +195,7 @@ def strip_markup(text: str) -> str:
 
     value = "".join(out)
     value = _BR_RE.sub("\n", value)
-    value = _TAG_RE.sub("", value)
+    value = _HTML_TAG_RE.sub("", value)
     value = _BOLD_RE.sub("", value)
     value = html.unescape(value).replace("\u00a0", " ")
     value = _SPACE_RE.sub(" ", value)
@@ -202,7 +209,7 @@ def strip_html(text: str) -> str:
     if not text:
         return ""
     value = _BR_RE.sub("\n", text)
-    value = _TAG_RE.sub("", value)
+    value = _HTML_TAG_RE.sub("", value)
     value = _BOLD_RE.sub("", value)
     value = html.unescape(value).replace("\u00a0", " ")
     value = _SPACE_RE.sub(" ", value)

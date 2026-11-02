@@ -1,7 +1,8 @@
 # PRTS 干员数据爬虫
 
-抓取 [PRTS 干员一览](https://prts.wiki/w/干员一览) 的全量干员数据（434 名），
-输出结构化 JSON / JSONL 与本地图片缓存。纯标准库实现，**无第三方依赖**。
+抓取 [PRTS 干员一览](https://prts.wiki/w/干员一览) 的全量干员数据（440 名），
+以及关卡与敌人数据，输出结构化 JSON / JSONL、本地图片缓存与人类可读视图。
+纯标准库实现，**无第三方依赖**。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -27,12 +28,23 @@ python -m venv .venv
 ```
 
 ```powershell
-prts-crawler all              # 列表 + 详情 + 图片 + 导出
+prts-crawler all              # 干员 + 关卡 + 敌人（完整流程）
+prts-crawler operators        # 只跑干员：列表 + 详情 + 图片 + 导出
+prts-crawler stages           # 关卡 + 所述敌人（默认主线）
 prts-crawler index            # 只要列表（1 次请求）
 prts-crawler details          # 列表 + 详情（不下载图片）
 prts-crawler export           # 从已有数据重新渲染 md/html，不联网
 prts-crawler all --limit 20   # 小样本试跑
 prts-crawler all --refresh    # 忽略缓存重抓
+```
+
+关卡范围与敌人范围可单独控制：
+
+```powershell
+prts-crawler stages --stage-scope main    # 主线 487 关（默认）
+prts-crawler stages --stage-scope event   # 活动关卡
+prts-crawler stages --stage-scope all     # 全部普通难度关卡
+prts-crawler enemies --all-enemies        # 全量敌人，而非只补关卡引用的
 ```
 
 不想激活也能直接用解释器调用：`.\.venv\Scripts\python.exe -m prts_crawler all`。
@@ -74,15 +86,17 @@ prts-crawler --env-file .env.ci -v all
 
 ```
 data/
-├── index.json          # Cargo 原始列表（434 行）
+├── index.json          # Cargo 原始列表（440 行）
 ├── operators.json      # 合并后的数据集（含 meta）
 ├── operators.jsonl     # 逐行版本，便于流式处理
 ├── meta.json           # 统计：请求数、耗时、各字段覆盖率
+├── stages.json         # 关卡：面板约束、敌人清单、装置、掉落、突袭变体
+├── enemies.json        # 敌人：属性、抗性、各级别数值
 ├── exports/            # 人类可读视图
 │   ├── operators.md    #   总览表 + 按职业分组（diff 友好，约 120 KB）
 │   └── operators.html  #   单文件看板，带图 / 搜索 / 折叠（约 1.3 MB）
 └── media/
-    ├── avatars/        # 头像 434 张
+    ├── avatars/        # 头像 440 张
     └── professions/    # 职业图标
 ```
 
@@ -91,8 +105,8 @@ data/
 |\ | Markdown | HTML |
 |---|---|---|
 | 定位 | 进仓库做版本对比 | 浏览、交付、打印 PDF |
-| 体积（434 名全量） | 120 KB | 1.3 MB（含全部技能/天赋/模组表） |
-| 头像 | 无 | 434 张，`loading="lazy"` |
+| 体积（440 名全量） | 120 KB | 1.3 MB（含全部技能/天赋/模组表） |
+| 头像 | 无 | 440 张，`loading="lazy"` |
 | 搜索筛选 | 无 | 输入「狙击」→ 命中 59 条 |
 | 折叠长表 | 无 | 1670 个 `<details>` |
 | Git diff | ✅ 一行一名干员 | ❌ 单文件不可读 |
@@ -152,8 +166,9 @@ prts_crawler/
 ├── wikitext.py   # {{模板}} 解析器（支持嵌套 / 链接 / 着色清理）
 ├── fallback.py   # 兜底：解析 #filter-data 的 data-* 卡片
 ├── media.py      # imageinfo 解析 + 图片下载
+├── stages.py     # 关卡与敌人：分类枚举 + 关卡/敌人模板解析
 ├── export.py     # 渲染 Markdown 摘要 / HTML 看板（零依赖）
-├── pipeline.py   # 编排：索引 → 详情 → 合并 → 媒体 → 导出
+├── pipeline.py   # 编排：索引 → 详情 → 合并 → 媒体 → 导出 → 关卡 → 敌人
 └── cli.py        # argparse 入口
 ```
 
@@ -161,13 +176,16 @@ prts_crawler/
 
 | 数据 | 方式 | 请求数 |
 | --- | --- | --- |
-| 干员列表（面板/稀有度/职业/标签…） | `action=cargoquery` 一次取回 434 行 | 1 |
+| 干员列表（面板/稀有度/职业/标签…） | `action=cargoquery` 一次取回 440 行 | 1 |
 | 技能/天赋/模组/基建/档案 | `action=query&prop=revisions` 每批 50 页 | 9 |
 | 头像 URL | `prop=imageinfo&iiprop=url` 每批 50 个 | 9 |
-| 头像文件 | `media.prts.wiki` 直链 | 434 |
+| 头像文件 | `media.prts.wiki` 直链 | 440 |
+| 关卡列表 | `action=query&list=categorymembers` 走分类 | 1–6 |
+| 关卡正文 | `action=query&prop=revisions` 每批 50 页（主线 487 页） | 10 |
+| 敌人（仅关卡引用到的） | 同上，321 个 | 7 |
 
 - **必须带 `Accept-Language`**：PRTS 的 Tengine CDN 对缺少该头的请求直接返回 403。
-- 全局令牌桶限速（`PRTS_RATE`，默认 `4 req/s`）+ 429/5xx 指数退避；整轮约 460 请求、2 分钟。
+- 全局令牌桶限速（`PRTS_RATE`，默认 `4 req/s`）+ 429/5xx 指数退避；干员全流程约 460 请求、2 分钟。
 - `data/cache/wikitext/` 缓存页面源码，`--refresh` 才会失效；解析规则调整后可离线重解析。
 - 字段口径：`rarity` 已从源站的 0 基（0 = 1★）归一为 **1–6 星**；面板数值为满级、不含信赖。
 
@@ -185,6 +203,24 @@ prts_crawler/
 | `modules` | 模组；`baseBadge: true` 表示基础证章 |
 | `buildingSkills` | 基建技能（房间/阶段/描述） |
 
+关卡与敌人（`stages.json` / `enemies.json`）：
+
+| 字段 | 含义 |
+| --- | --- |
+| `stageId` / `code` / `name` | 游戏内 id（`main_01-07`）、关卡代号（`1-7`）、关卡名 |
+| `deployLimit` / `initialCost` / `costLimit` | 部署上限、初始 COST、COST 上限 |
+| `lifePoints` / `enemyCount` / `mapSize` | 目标点耐久、敌人总数、地图尺寸 |
+| `recommendedLevel` / `sanity` / `drillSanity` | 推荐等级、作战消耗、演习消耗 |
+| `description` / `intel` | 关卡机制说明；`intel` 为突袭等额外情报 |
+| `enemies` | `[{name, count, level}]`，来自 `{{敌方情报}}` |
+| `devices` | `[{name, level, skill}]`，来自 `{{关卡装置}}` |
+| `challenge` | 突袭变体（难度、附加条件、消耗、掉落） |
+| `isBattle` / `storyOnly` | 是否战斗关；剧情关据此标出，避免与"解析失败"混淆 |
+| `enemies.json → levels[]` | 各级别 hp/atk/def/res、移速、重量、抗性表 |
+
+> 注意：PRTS 用尖括号表示游戏内机制名（如 `<震撼装置>`、`<替身>`），
+> 解析器只剥离白名单内的真实 HTML 标签，不会误删这些名字。
+
 ## 测试
 
 ```powershell
@@ -192,8 +228,9 @@ prts_crawler/
 ```
 
 覆盖模板解析、嵌套 `{{color}}`/链接清理、技能等级与专精、天赋、基建技能、潜能串解析，
-`.env` 解析（引号/转义/注释/优先级）与配置归一化，以及导出（Markdown 转义、HTML 自包含、
-格式选择、缺失字段容错）。
+`.env` 解析（引号/转义/注释/优先级）与配置归一化，导出（Markdown 转义、HTML 自包含、
+格式选择、缺失字段容错），以及关卡/敌人（面板字段、敌人分组、装置、掉落拆分、
+剧情关判定、分类范围解析）。
 
 ## AI Agent 工作计划
 
