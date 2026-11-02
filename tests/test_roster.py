@@ -7,6 +7,7 @@ from pathlib import Path
 
 from prts_crawler.roster import (
     Entry,
+    backup_file,
     infer_elite,
     infer_elite_by_cap,
     load_entries,
@@ -269,6 +270,35 @@ class LoadEntriesTests(unittest.TestCase):
         entries, meta = load_entries(path)
         self.assertEqual([entry.name for entry in entries], ["银灰", "芬"])
         self.assertEqual(meta, {})
+
+
+class BackupTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.dir = Path(self._tmp.name)
+
+    def test_backup_copies_existing_file(self) -> None:
+        target = self.dir / "owned-operators.md"
+        target.write_text("用户手填的内容\n", encoding="utf-8")
+
+        backup = backup_file(target)
+
+        assert backup is not None
+        self.assertEqual(backup.name, "owned-operators.bak.md")
+        self.assertEqual(backup.read_text(encoding="utf-8"), "用户手填的内容\n")
+        # 原文件此时保持不变，由调用方决定何时覆盖
+        self.assertEqual(target.read_text(encoding="utf-8"), "用户手填的内容\n")
+
+    def test_backup_returns_none_when_missing(self) -> None:
+        self.assertIsNone(backup_file(self.dir / "nope.md"))
+
+    def test_backup_keeps_original_extension(self) -> None:
+        target = self.dir / "list.txt"
+        target.write_text("x", encoding="utf-8")
+        backup = backup_file(target)
+        assert backup is not None
+        self.assertEqual(backup.name, "list.bak.txt")
 
 
 class FillSheetTests(unittest.TestCase):

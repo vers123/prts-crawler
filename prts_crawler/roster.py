@@ -302,6 +302,21 @@ def _stars(rarity: Any) -> str:
     return "★" * value if value else "?"
 
 
+def backup_file(path: Path) -> Path | None:
+    """Copy *path* to ``<name>.bak<ext>`` before it is overwritten.
+
+    The roster is hand-edited data; regenerating it must never silently destroy
+    someone's work. Returns the backup path, or ``None`` when there was nothing
+    to back up.
+    """
+    target = Path(path)
+    if not target.exists():
+        return None
+    backup = target.with_name(f"{target.stem}.bak{target.suffix}")
+    backup.write_bytes(target.read_bytes())
+    return backup
+
+
 def render_fill_sheet(
     resolutions: Sequence[Resolution],
     meta: dict[str, Any] | None = None,

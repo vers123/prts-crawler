@@ -24,6 +24,7 @@ from .lookup import (
 )
 from .pipeline import CrawlConfig, Crawler
 from .roster import (
+    backup_file,
     load_entries,
     load_operators,
     render_fill_sheet,
@@ -285,6 +286,9 @@ def _run_roster(args) -> int:
         return 0 if summary["unmatched"] == [] else 3
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    backup = backup_file(out_path)
+    if backup is not None:
+        print(f"已备份原文件 → {backup}")
     out_path.write_text(markdown, encoding="utf-8", newline="\n")
     print(f"已写入 {out_path}")
     return 0
