@@ -7,16 +7,25 @@ has to be exported by hand. ``--env-file`` loads a different file instead.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
 from .config import Settings, load_settings
 from .env import ENV_FILE_VAR, find_dotenv, load_dotenv
 from .export import FORMAT_CHOICES, resolve_formats
+from .http import HttpClient
+from .lookup import (
+    describe_stage,
+    fetch_remote_stage,
+    load_stages,
+    remote_search,
+    search_local,
+)
 from .pipeline import CrawlConfig, Crawler
 from .stages import SCOPE_CHOICES
 
-STEPS = ("index", "details", "media", "export", "stages", "enemies", "operators")
+STEPS = ("index", "details", "media", "export", "stages", "enemies", "operators", "stage")
 
 
 def _preload_env_file(argv: list[str]) -> Path | None:
@@ -42,8 +51,14 @@ def build_parser(settings: Settings, env_path: Path | None = None) -> argparse.A
         default="all",
         choices=(*STEPS, "all"),
         help="index=仅列表, details=列表+详情, media=额外下载图片, "
-        "export=从已有数据重新导出视图, stages=关卡+敌人, enemies=只补敌人, "
-        "operators=干员全流程, all=干员+关卡+敌人",
+        "export=从已有数据重新导出视图, stages=抓关卡+敌人, enemies=只补敌人, "
+        "stage=查询单个关卡, operators=干员全流程, all=干员+关卡+敌人",
+    )
+    parser.add_argument(
+        "query",
+        nargs="?",
+        default=None,
+        help="配合 stage 使用：关卡代号(1-7)、名称(暴君) 或 id(main_01-07)",
     )
     parser.add_argument(
         "--env-file",
@@ -88,6 +103,16 @@ def build_parser(settings: Settings, env_path: Path | None = None) -> argparse.A
         help="抓取 分类:敌人 全部敌人，而不是只补齐关卡引用到的敌人",
     )
     parser.add_argument(
+        "--json",
+        action="store_true",
+        help="配合 stage 使用：输出原始 JSON 而不是摘要",
+    )
+    parser.add_argument(
+        "--pick",
+        action="store_true",
+        help="配合 stage 使用：多个候选同分时直接取第一个",
+    )
+    parser.add_argument(
         "--format",
         dest="formats",
         default=settings.export_format,
@@ -113,12 +138,70 @@ def build_parser(settings: Settings, env_path: Path | None = None) -> argparse.A
     return parser
 
 
+def _run_stage_lookup(args, settings) -> int:
+    """``prts-crawler stage <query>``: local index first, then PRTS search."""
+    if not args.query:
+        print("用法: prts-crawler stage <代号|名称|id>", file=sys.stderr)
+        return 2
+
+    out_dir = Path(args.out).resolve()
+    stages_path = out_dir / "stages.json"
+    stages = load_stages(stages_path) if stages_path.exists() else []
+    if not stages:
+        print(
+            f"[stage] 本地未找到 {stages_path}，转向 PRTS 搜索（可先运行 stages 建立索引）",
+            file=sys.stderr,
+        )
+
+    matches = search_local(stages, args.query)
+    if matches:
+        top = matches[0]
+        rivals = [m for m in matches[1:] if m.score == top.score]
+        if rivals and not args.pick:
+            print(f"「{args.query}」匹配到 {1 + len(rivals)} 个同等优先级的关卡：", file=sys.stderr)
+            for match in [top, *rivals][:10]:
+                print(f"  {match.code:<10} {match.name:<14} ({match.reason})", file=sys.stderr)
+            print("请用更精确的代号或名称重试。", file=sys.stderr)
+            return 3
+        if args.json:
+            print(json.dumps(top.stage, ensure_ascii=False, indent=2))
+        else:
+            print(describe_stage(top.stage))
+            print(f"  命中依据：{top.reason}")
+        return 0
+
+    titles = remote_search(HttpClient(rate=args.rps), args.query)
+    candidates = fetch_remote_stage(HttpClient(rate=args.rps), titles[:3])
+    if not candidates:
+        print(f"未找到关卡「{args.query}」；可用 prts-crawler stages 更新本地索引后重试。", file=sys.stderr)
+        if titles:
+            print("搜索到的页面（非关卡）：" + "、".join(titles), file=sys.stderr)
+        return 4
+
+    stage = candidates[0]
+    if args.json:
+        print(json.dumps(stage, ensure_ascii=False, indent=2))
+    else:
+        print(describe_stage(stage))
+        print("  命中依据：PRTS 搜索（本地索引未收录）")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     env_path = _preload_env_file(argv)
     settings = load_settings()
 
     args = build_parser(settings, env_path).parse_args(argv)
+
+    if args.step == "stage":
+        try:
+            return _run_stage_lookup(args, settings)
+        except KeyboardInterrupt:
+            return 130
+        except Exception as exc:  # noqa: BLE001
+            print(f"查询失败: {exc}", file=sys.stderr)
+            return 1
 
     STEP_MAP = {
         "all": ["index", "details", "media", "export", "stages", "enemies"],

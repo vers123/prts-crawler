@@ -47,6 +47,18 @@ prts-crawler stages --stage-scope all     # 全部普通难度关卡
 prts-crawler enemies --all-enemies        # 全量敌人，而非只补关卡引用的
 ```
 
+查询单个关卡（本地索引优先，未收录时回退 PRTS 搜索）：
+
+```powershell
+prts-crawler stage 1-7          # 按代号
+prts-crawler stage 暴君          # 按关卡名
+prts-crawler stage main_01-07   # 按游戏内 id
+prts-crawler stage DM-8         # 本地未收录 → 自动走 PRTS 搜索
+prts-crawler stage 1-7 --json   # 输出原始 JSON
+```
+
+退出码：`0` 命中、`3` 多个同分候选、`4` 未找到。
+
 不想激活也能直接用解释器调用：`.\.venv\Scripts\python.exe -m prts_crawler all`。
 
 ## 配置（.env）
@@ -167,6 +179,7 @@ prts_crawler/
 ├── fallback.py   # 兜底：解析 #filter-data 的 data-* 卡片
 ├── media.py      # imageinfo 解析 + 图片下载
 ├── stages.py     # 关卡与敌人：分类枚举 + 关卡/敌人模板解析
+├── lookup.py     # 关卡检索：本地打分匹配，未命中回退 PRTS 搜索
 ├── export.py     # 渲染 Markdown 摘要 / HTML 看板（零依赖）
 ├── pipeline.py   # 编排：索引 → 详情 → 合并 → 媒体 → 导出 → 关卡 → 敌人
 └── cli.py        # argparse 入口

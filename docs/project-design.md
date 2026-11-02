@@ -76,6 +76,7 @@ PRTS 网站
 | `detail.py`、`wikitext.py` | 批量读取页面源码，解析嵌套模板和具体详情字段 |
 | `media.py` | 查找头像和职业图标 URL，下载到本地媒体目录 |
 | `stages.py` | 按分类枚举关卡，解析关卡、敌人与装置的模板字段 |
+| `lookup.py` | 把关卡代号/名称解析为具体关卡，本地打分优先、远端搜索兜底 |
 | `pipeline.py` | 编排缓存、抓取、数据合并、元信息记录和导出 |
 | `export.py` | 将统一数据集生成为 Markdown 摘要和独立 HTML 看板 |
 | `cli.py` | 提供分阶段命令、参数覆盖和可读的运行结果 |
@@ -136,6 +137,7 @@ PRTS 网站
 - `prts-crawler details`：更新列表并补充详情。
 - `prts-crawler operators`：干员全流程（列表、详情、图片、导出）。
 - `prts-crawler stages`：抓取关卡及其引用的敌人。
+- `prts-crawler stage 1-7`：查询单个关卡，本地未收录时回退到 PRTS 搜索。
 - `prts-crawler enemies`：只补抓敌人，缺 `stages.json` 时需加 `--all-enemies`。
 - `prts-crawler all`：干员与关卡两条链路都执行。
 - `prts-crawler export`：不访问网络，使用已有数据重新生成导出视图。
